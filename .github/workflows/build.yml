@@ -7,12 +7,9 @@
 # Run: Actions tab -> "Build Dark Shelf APK" -> Run workflow.
 # Result: a Release (Releases section of the repo) with the APK attached, plus a workflow artifact.
 #
-# Optional signing (so future builds install as updates and keep your data):
-#   Option A: add repo secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
-#             (and optionally ANDROID_KEY_PASSWORD)
-#   Option B: put a keystore at release-keystore/android.keystore in the repo and add the
-#             ANDROID_KEYSTORE_PASSWORD + ANDROID_KEY_ALIAS secrets.
-# With neither, a debug-signed APK is built (installs fine; uninstall the old one before updating).
+# SIGNING: uses three repo secrets (Settings > Secrets and variables > Actions):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
+# Nothing secret is ever stored in the repo. Never change the keystore, or updates won't install.
 
 name: Build Dark Shelf APK
 
@@ -39,7 +36,6 @@ jobs:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
     steps:
       - name: Check out repo
@@ -124,38 +120,30 @@ jobs:
           VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
           set -euo pipefail
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS; do
+            if [ -z "${!v:-}" ]; then echo "::error::Repo secret $v is missing (Settings > Secrets and variables > Actions)."; exit 1; fi
+          done
           chmod +x gradlew
           mkdir -p ../../apk-out
           OUT="$GITHUB_WORKSPACE/apk-out"
+          KS="$RUNNER_TEMP/release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS"
+          export STORE_PASS="$ANDROID_KEYSTORE_PASSWORD"
+          KEY_PASS_VAR="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+          export KEY_PASS="$KEY_PASS_VAR"
 
-          KS=""
-          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-            KS="$RUNNER_TEMP/release.jks"
-          elif [ -f "$GITHUB_WORKSPACE/release-keystore/android.keystore" ]; then
-            KS="$GITHUB_WORKSPACE/release-keystore/android.keystore"
-          fi
-
-          if [ -n "$KS" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
-            echo "Building SIGNED release APK"
-            KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
-            ./gradlew --no-daemon assembleRelease
-            BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
-            "$BT/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
-            "$BT/apksigner" sign \
-              --ks "$KS" \
-              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
-              --ks-key-alias "$ANDROID_KEY_ALIAS" \
-              --key-pass pass:"$KEY_PASS" \
-              --out "$OUT/dark-shelf-${VERSION_NAME}.apk" \
-              "$RUNNER_TEMP/aligned.apk"
-            "$BT/apksigner" verify "$OUT/dark-shelf-${VERSION_NAME}.apk"
-          else
-            echo "::warning::No signing keystore found, building a debug-signed APK."
-            ./gradlew --no-daemon assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk "$OUT/dark-shelf-${VERSION_NAME}-debug.apk"
-          fi
-          rm -f "$RUNNER_TEMP/release.jks"
+          ./gradlew --no-daemon assembleRelease
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$BT/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign \
+            --ks "$KS" \
+            --ks-pass env:STORE_PASS \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --key-pass env:KEY_PASS \
+            --out "$OUT/dark-shelf-${VERSION_NAME}.apk" \
+            "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify "$OUT/dark-shelf-${VERSION_NAME}.apk"
+          rm -f "$KS"
           ls -la "$OUT"
 
       - name: Upload APK as artifact
