@@ -128,9 +128,10 @@ jobs:
           OUT="$GITHUB_WORKSPACE/apk-out"
           KS="$RUNNER_TEMP/release.keystore"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KS"
-          export STORE_PASS="$ANDROID_KEYSTORE_PASSWORD"
-          KEY_PASS_VAR="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
-          export KEY_PASS="$KEY_PASS_VAR"
+          # Strip invisible/non-ASCII characters that phone copy-paste can add to secrets.
+          export STORE_PASS="$(printf '%s' "$ANDROID_KEYSTORE_PASSWORD" | tr -cd 'A-Za-z0-9')"
+          export KEY_PASS="$STORE_PASS"
+          ALIAS_CLEAN="$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -cd 'A-Za-z0-9')"
 
           ./gradlew --no-daemon assembleRelease
           BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
@@ -138,7 +139,7 @@ jobs:
           "$BT/apksigner" sign \
             --ks "$KS" \
             --ks-pass env:STORE_PASS \
-            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-key-alias "$ALIAS_CLEAN" \
             --key-pass env:KEY_PASS \
             --out "$OUT/dark-shelf-${VERSION_NAME}.apk" \
             "$RUNNER_TEMP/aligned.apk"
