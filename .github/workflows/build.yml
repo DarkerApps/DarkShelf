@@ -133,6 +133,9 @@ jobs:
           export KEY_PASS="$STORE_PASS"
           ALIAS_CLEAN="$(printf '%s' "$ANDROID_KEY_ALIAS" | tr -cd 'A-Za-z0-9')"
 
+          echo "Check: password length=${#STORE_PASS} (expected 24), alias='$ALIAS_CLEAN', keystore bytes=$(stat -c %s "$KS")"
+          keytool -list -keystore "$KS" -storepass "$STORE_PASS" -alias "$ALIAS_CLEAN" 2>&1 | grep -v JAVA_TOOL | head -5 || true
+
           ./gradlew --no-daemon assembleRelease
           BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
           "$BT/zipalign" -p -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
