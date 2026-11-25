@@ -97,8 +97,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licences (SDK is preinstalled on the runner)
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Generate Android project (Capacitor)
         working-directory: app
@@ -170,4 +172,3 @@ jobs:
           name: Dark Shelf ${{ steps.version.outputs.name }}
           files: apk-out/*.apk
           make_latest: true
-
